@@ -1,65 +1,76 @@
-import nltk
-from nltk.util import ngrams
 from collections import Counter
+from nltk.util import ngrams
+from itertools import chain
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-# Function to estimate Unigram language model using MLE
-def estimate_unigram(tokens):
-    unigram_counts = Counter(tokens)
-    total_tokens = len(tokens)
-    unigram_model = {
-        token: count / total_tokens for token, count in unigram_counts.items()
-    }
-    return unigram_model
+class LM:
+    def __init__(self, dataset):
+        self.dataset = dataset
 
+    # Function to estimate Unigram language model using MLE
+    def estimate_unigram(self):
+        flattened_tokens = list(chain.from_iterable(self.dataset))
+        unigram_counts = Counter(flattened_tokens)
+        total_tokens = len(flattened_tokens)
+        unigram_model = {
+            token: count / total_tokens
+            for token, count in unigram_counts.items()
+        }
+        return unigram_model
 
-# Function to estimate Bigram language model using MLE with Linear Interpolation Smoothing
-def estimate_bigram(tokens):
-    bigram_counts = Counter(ngrams(tokens, 2))
-    unigram_counts = Counter(tokens)
-    bigram_model = {}
-    lambda_value = 0.9  # Smoothing parameter for linear interpolation
-    for bigram, count in bigram_counts.items():
-        prev_token = bigram[0]
-        bigram_model[bigram] = (count + lambda_value) / (
-            unigram_counts[prev_token] + lambda_value * len(unigram_counts)
-        )
-    return bigram_model
+    # Function to estimate Bigram language model using MLE with Linear
+    # Interpolation Smoothing
+    def estimate_bigram(self):
+        flattened_tokens = list(chain.from_iterable(self.dataset))
+        bigram_counts = Counter(ngrams(flattened_tokens, 2))
+        unigram_counts = Counter(flattened_tokens)
+        bigram_model = {}
+        lambda_value = 0.9
+        for bigram, count in bigram_counts.items():
+            prev_token = bigram[0]
+            bigram_model[bigram] = (count + lambda_value) / (
+                unigram_counts[prev_token] + lambda_value * len(unigram_counts)
+            )
+        return bigram_model
 
+    # Function to find top k words most likely to follow a given word in
+    # the Bigram language model with Linear Interpolation Smoothing
+    def find_top_words(
+        self,
+        bigram_model,
+        unigram_model,
+        tfidf_vectorizer,
+        corpus,
+        word,
+        k,
+        lambda_value,
+    ):
+        candidates = [
+            candidate
+            for candidate in bigram_model.keys()
+            if candidate[0] == word
+        ]
 
-# Function to find top k words most likely to follow a given word in the Bigram language model
-def find_top_words(bigram_model, word, k):
-    candidates = [
-        candidate for candidate in bigram_model.keys() if candidate[0] == word
-    ]
-    top_words = sorted(
-        candidates, key=lambda x: bigram_model[x], reverse=True
-    )[:k]
-    return [word[1] for word in top_words]
+        # Calculate scores based on the probabilities from the models and TF-IDF values
+        scores = []
+        for candidate in candidates:
+            prob_bigram = bigram_model[candidate].get(candidate[1], 0)
+            prob_unigram = unigram_model.get(candidate[1], 0)
+            tfidf_score = TfidfVectorizer.transform([corpus]).toarray()[0][
+                tfidf_vectorizer.vocabulary_.get(candidate[1], 0)
+            ]
+            score = (
+                lambda_value * prob_bigram
+                + (1 - lambda_value) * prob_unigram
+                + tfidf_score
+            )
+            scores.append((candidate[1], score))
 
+        # Sort words based on scores in descending order
+        sorted_words = sorted(scores, key=lambda x: x[1], reverse=True)
 
-# Read dataset
-from my_io import my_io
-from preproccessing import preproccessing
+        # Return the top k words
+        top_words = sorted_words[:k]
 
-dataset_path = "./Dataset/"
-dataset = my_io(dataset_path).read_jsons_from_folder()
-
-# Preproccessing
-tokens = preproccessing().tokenize(dataset)
-
-print("H")
-
-
-# Assuming you have a list of preprocessed tokens for each review in the variable 'preprocessed_reviews'
-# Concatenate all tokens into a single list
-all_tokens = [token for review_tokens in tokens for token in review_tokens]
-
-# Estimate Unigram language model
-unigram_model = estimate_unigram(all_tokens)
-
-# Estimate Bigram language model with Linear Interpolation Smoothing
-bigram_model = estimate_bigram(all_tokens)
-
-# Find top 10 words most likely to follow the word 'decent' based on the Bigram language model
-top_words_decent = find_top_words(bigram_model, "decent", 10)
+        return top_words
