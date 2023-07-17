@@ -30,3 +30,5 @@ word = "decent"
 k = 10
 lambda_value = 0.9
 top_words = LM(dataset).find_top_words(word, k, lambda_value)
+
+print("hi")
