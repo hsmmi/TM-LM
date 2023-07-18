@@ -4,10 +4,28 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import PorterStemmer
 
 
-nltk.download("punkt")
+# nltk.download("punkt")
 
 
 class preproccessing:
+    def __init__(self):
+        pass
+
+    def preproccess(self, dataset):
+        # Tokenization
+        tokenized_dataset = self.tokenize(dataset)
+
+        # Normalization
+        normalized_dataset = self.normalization(tokenized_dataset)
+
+        # Stemming
+        stemmed_dataset = self.stemming(normalized_dataset)
+
+        # Remove stop words
+        cleaned_dataset = self.remove_stop_word(stemmed_dataset)
+
+        return cleaned_dataset
+
     def tokenize(self, dataset):
         tokenized_dataset = [
             [word_tokenize(review) for review in resturant_reviews]
