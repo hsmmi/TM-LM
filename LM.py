@@ -1,7 +1,6 @@
 from collections import Counter
 from nltk.util import ngrams
 from itertools import chain
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 class LM:
@@ -12,14 +11,19 @@ class LM:
     def estimate_unigram(self):
         # Flatten the dataset and convert tokenized reviews to a list of words
         flattened_reviews = [
-            word for review in self.dataset for word in review
+            word
+            for resturant_review in self.dataset
+            for review in resturant_review
+            for word in review
         ]
 
         # Count the occurrences of each word in the dataset
         unigram_counts = {}
         for word in flattened_reviews:
-            unigram_counts[word] = unigram_counts.get(word, 0) + 1
-
+            if word in unigram_counts:
+                unigram_counts[word] += 1
+            else:
+                unigram_counts[word] = 1
         total_words = len(flattened_reviews)
 
         # Estimate the unigram model probabilities using MLE
@@ -48,7 +52,8 @@ class LM:
             bigrams = ngrams(tokens, 2)
             bigram_counts.update(bigrams)
 
-        # Estimate the bigram model probabilities using MLE with linear interpolation smoothing
+        # Estimate the bigram model probabilities using MLE with
+        # linear interpolation smoothing
         total_bigrams = sum(bigram_counts.values())
         bigram_model = {}
         for bigram, count in bigram_counts.items():
@@ -57,78 +62,75 @@ class LM:
 
         return bigram_model
 
-    # def estimate_bigram(self, lambda_value=0.9):
-
-    #     # Flatten the dataset and convert tokenized reviews to strings
-    #     flattened_reviews = [
-    #         " ".join(review) for review in chain.from_iterable(self.dataset)
-    #     ]
-
-    #     # Create a dictionary to store bigram counts
-    #     bigram_counts = Counter()
-
-    #     # Iterate over each document and update the bigram counts
-    #     for review in flattened_reviews:
-    #         tokens = review.split()
-    #         bigrams = ngrams(tokens, 2)
-    #         bigram_counts.update(bigrams)
-
-    #     # Estimate the bigram model probabilities using MLE with
-    #     # linear interpolation smoothing
-    #     bigram_model = {}
-    #     for bigram, count in bigram_counts.items():
-    #         word1, word2 = bigram
-    #         unigram_count = sum(
-    #             [count for _, count in bigram_counts.items() if _ == word1]
-    #         )
-    #         bigram_prob = (count + 1) / (unigram_count + len(bigram_counts))
-    #         unigram_prob = (unigram_count + 1) / (
-    #             sum(bigram_counts.values()) + len(bigram_counts)
-    #         )
-    #         interpolated_prob = (
-    #             lambda_value * bigram_prob + (1 - lambda_value) * unigram_prob
-    #         )
-    #         bigram_model[bigram] = interpolated_prob
-
-    #     return bigram_model
-
-    # the Bigram language model with Linear Interpolation Smoothing
     def find_top_words(
-        self,
-        bigram_model,
-        unigram_model,
-        tfidf_vectorizer,
-        corpus,
-        word,
-        k,
-        lambda_value,
+        self, unigram_model, bigram_model, target_word, lambda_value, k
     ):
         candidates = [
-            candidate
-            for candidate in bigram_model.keys()
-            if candidate[0] == word
+            word2
+            for word1, word2 in bigram_model.keys()
+            if word1 == target_word
         ]
 
-        # Calculate scores based on the probabilities from the models
-        # and TF-IDF values
-        scores = []
-        for candidate in candidates:
-            prob_bigram = bigram_model[candidate].get(candidate[1], 0)
-            prob_unigram = unigram_model.get(candidate[1], 0)
-            tfidf_score = TfidfVectorizer.transform([corpus]).toarray()[0][
-                tfidf_vectorizer.vocabulary_.get(candidate[1], 0)
-            ]
-            score = (
-                lambda_value * prob_bigram
-                + (1 - lambda_value) * prob_unigram
-                + tfidf_score
+        normalized_bigram_model = [
+            (word2, bigram_model[(target_word, word2)]) for word2 in candidates
+        ]
+
+        sum_bigram_model = sum([prob for _, prob in normalized_bigram_model])
+
+        normalized_bigram_model = [
+            (word2, prob / sum_bigram_model)
+            for word2, prob in normalized_bigram_model
+        ]
+        normalized_bigram_model = dict(normalized_bigram_model)
+
+        ###
+        normalized_unigram_model = [
+            (word2, unigram_model[word2]) for word2 in candidates
+        ]
+
+        sum_unigram_model = sum([prob for _, prob in normalized_unigram_model])
+
+        normalized_unigram_model = [
+            (word2, prob / sum_unigram_model)
+            for word2, prob in normalized_unigram_model
+        ]
+        normalized_unigram_model = dict(normalized_unigram_model)
+
+        ###
+        scores = [
+            (
+                word2,
+                lambda_value * normalized_unigram_model[word2]
+                + (1 - lambda_value) * normalized_bigram_model[word2],
             )
-            scores.append((candidate[1], score))
+            for word2 in candidates
+        ]
 
-        # Sort words based on scores in descending order
-        sorted_words = sorted(scores, key=lambda x: x[1], reverse=True)
+        top_indices = sorted(
+            range(len(scores)), key=lambda i: scores[i], reverse=True
+        )[:k]
+        top_scores = [scores[i][1] for i in top_indices]
 
-        # Return the top k words
-        top_words = sorted_words[:k]
+        # Calculate the normalization factor
+        normalization_factor = 100 / sum(top_scores)
 
-        return top_words
+        # Normalize the top scores
+        normalized_scores = [
+            score * normalization_factor for score in top_scores
+        ]
+
+        top_words_with_scores = [
+            (candidates[candidate_indence], normalized_scores[score_indence])
+            for score_indence, candidate_indence in enumerate(top_indices)
+        ]
+
+        top_words_with_scores = sorted(
+            top_words_with_scores, key=lambda x: x[1], reverse=True
+        )
+
+        # Round the scores to 2 decimal places
+        top_words_with_scores = [
+            (word, round(score, 2)) for word, score in top_words_with_scores
+        ]
+
+        return top_words_with_scores
